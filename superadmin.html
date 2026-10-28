@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OmniTravel - Superadmin SPA</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        const s_sup = JSON.parse(localStorage.getItem('omni_user'));
+        if (s_sup && s_sup.rol === 'admin') {
+            s_sup.rol = 'superadmin';
+            localStorage.setItem('omni_user', JSON.stringify(s_sup));
+        }
+        if (!s_sup || s_sup.rol !== 'superadmin') {
+            window.location.replace('index.html');
+        }
+    </script>
+    <!-- Leaflet para Mapas -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
+    
+    <style>
+        .main-content { overflow-y: auto; }
+        
+        .stat-card {
+            padding: 1.5rem;
+            background: #fff;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--card-border);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .stat-card h3 { font-size: 2rem; color: var(--text-main); margin: 0; }
+        
+        #global-map, #routing-map {
+            width: 100%;
+            height: 400px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--card-border);
+            z-index: 1;
+        }
+
+        .table-responsive { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radius-md); overflow: hidden; }
+        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--card-border); }
+        th { background: #f8fafc; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+        .badge.pending { background: #fef3c7; color: #d97706; }
+        .badge.approved { background: #d1fae5; color: #059669; }
+        
+        .topology-select { display: flex; gap: 10px; margin-bottom: 15px; }
+        .topo-btn { flex: 1; padding: 10px; border: 1px solid var(--card-border); background: #fff; border-radius: var(--radius-sm); cursor:pointer; text-align:center;}
+        .topo-btn.active { border-color: var(--accent); background: #eff6ff; color: var(--accent); font-weight:bold;}
+
+        .toggle-switch { position: relative; display: inline-block; width: 50px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background: #fff; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background: var(--success); }
+        input:checked + .slider:before { transform: translateX(26px); }
+        .gps-status-indicator { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); margin-right: 8px; }
+        .gps-status-indicator.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
+
+        /* SPA Tab System */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .trip-item {
+            background: #fff; border: 1px solid var(--card-border); padding: 1.5rem; 
+            border-radius: var(--radius-md); margin-bottom: 1rem;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .trip-info h4 { margin: 0 0 5px 0; color: var(--text-main); }
+        .trip-info p { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+
+    <button type="button" class="menu-toggle" id="menu-toggle">Menú</button>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="dashboard-container">
+        <aside class="sidebar" id="sidebar">
+            <a href="#" class="nav-brand">OmniTravel<small>Superadministrador</small></a>
+            <div class="sidebar-user">
+                <img id="nav-profile-pic" src="" alt="Perfil">
+                <span class="user-badge" id="admin-name">Super Admin</span>
+            </div>
+            <div class="sidebar-menu">
+                <div class="menu-item active" data-target="dashboard">Dashboard General</div>
+                <div class="menu-item" data-target="aprobaciones">Aprobación Usuarios <span id="badge-pendientes" style="background:var(--error);color:white;border-radius:10px;padding:2px 6px;font-size:0.7rem;margin-left:auto;display:none;">0</span></div>
+                <div class="menu-item" data-target="gestion-usuarios">Gestión de Roles</div>
+                <div class="menu-item" data-target="viajes">Crear Viaje</div>
+                <div class="menu-item" data-target="gestion-viajes">Gestión de Viajes</div>
+                <div class="menu-item" data-target="asignacion">Asignación de pasajeros</div>
+                <div class="menu-item" data-target="asistencia">Control de Asistencia</div>
+                <div class="menu-item" data-target="operacion">Operación del viaje</div>
+                <div class="menu-item" data-target="paradas">Solicitudes de parada <span id="badge-paradas" style="background:var(--gold);color:#fff;border-radius:10px;padding:2px 6px;font-size:0.7rem;margin-left:auto;display:none;">0</span></div>
+                <div class="menu-item" data-target="evidencias">Evidencias <span id="badge-evidencias" style="background:var(--gold);color:#fff;border-radius:10px;padding:2px 6px;font-size:0.7rem;margin-left:auto;display:none;">0</span></div>
+                <div class="menu-item menu-salir" onclick="logout()">Cerrar Sesión</div>
+            </div>
+        </aside>
+
+        <!-- Script de restauración inmediata de pestaña activa -->
+        <script>
+            (function() {
+                try {
+                    var hash = (window.location.hash || '').replace('#', '').trim();
+                    var saved = localStorage.getItem('omni_superadmin_tab');
+                    var target = hash || saved;
+                    if (target && target !== 'dashboard') {
+                        document.addEventListener('DOMContentLoaded', function() {
+                            var menuItem = document.querySelector('.menu-item[data-target="' + target + '"]');
+                            var tab = document.getElementById(target);
+                            if (menuItem && tab) {
+                                document.querySelectorAll('.sidebar-menu .menu-item').forEach(function(i) { i.classList.remove('active'); });
+                                document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+                                menuItem.classList.add('active');
+                                tab.classList.add('active');
+                                var hTitle = document.getElementById('header-title');
+                                if (hTitle) hTitle.innerText = menuItem.innerText.replace(/[0-9]/g, '').trim();
+                            }
+                        });
+                    }
+                } catch(e) {}
+            })();
+        </script>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <div class="main-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
+                <h2 id="header-title">Panel de Superadministrador</h2>
+                <button type="button" class="btn btn-danger btn-auto" id="btn-mantenimiento" onclick="alternarMantenimiento()">Página en mantenimiento</button>
+            </div>
+
+            <!-- TABS -->
+            <div id="dashboard" class="tab-content active">
+                <div class="grid grid-3 mb-3">
+                    <div class="stat-card">
+                        <span class="text-muted" style="font-size:0.9rem; font-weight:600;">Estudiantes Aprobados</span>
+                        <h3 style="color: var(--success);" id="stat-usuarios">0</h3>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-muted" style="font-size:0.9rem; font-weight:600;">Viajes Activos</span>
+                        <h3 style="color: var(--accent);" id="stat-viajes">0</h3>
+                    </div>
+                    <div class="stat-card">
+                        <span class="text-muted" style="font-size:0.9rem; font-weight:600;">Transportes Globales</span>
+                        <h3 style="color: #6366f1;" id="stat-transportes">0</h3>
+                    </div>
+                </div>
+                <div class="guia mb-3">
+                    <strong>Para que el estudiante elija asiento</strong>
+                    <p>Primero cree la unidad en Gestión de Viajes, botón Transportes. Después abra Asignación de pasajeros, elija el viaje y la unidad de cada estudiante. Hasta esa asignación, el estudiante ve “pendiente de transporte”.</p>
+                    <button type="button" class="btn btn-auto" style="margin-top:0.7rem;" onclick="document.querySelector('.menu-item[data-target=asignacion]').click()">Ir a asignación de pasajeros</button>
+                </div>
+                <div class="card" style="padding: 1.5rem;">
+                    <h3 class="mb-2">Recorridos y Paradas Programadas</h3>
+                    <p class="text-muted mb-2" id="gps-global-ayuda">Recorridos oficiales y paradas del viaje. Use "Ver en mapa" en Gestión de Viajes para enfocar la ruta.</p>
+                    <div id="gps-route-info" style="display:none; margin-bottom: 0.85rem; padding: 0.55rem 0.95rem; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; font-size: 0.85rem; color: #1e40af; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#2563eb; box-shadow:0 0 6px #60a5fa;"></span>
+                            <span id="gps-route-text" style="font-weight:600;">Ruta calculada siguiendo calles reales (Servicio OSRM/GPS)</span>
+                        </div>
+                        <div id="gps-route-metrics" style="font-weight:700; color: #1d4ed8; background: #ffffff; padding: 3px 10px; border-radius: 6px; border: 1px solid #dbeafe; font-size:0.85rem;"></div>
+                    </div>
+                    <div id="global-map"></div>
+                </div>
+            </div>
+
+            <div id="aprobaciones" class="tab-content">
+                <div class="card" style="padding: 1.5rem;">
+                    <h3 class="mb-2">Usuarios por Aprobar</h3>
+                    <p class="text-muted mb-3">Cuentas que solicitan acceso al sistema.</p>
+                    <div class="table-responsive">
+                        <table class="data-table" id="table-aprobaciones">
+                            <thead>
+                                <tr>
+                                    <th>Foto</th>
+                                    <th>Nombre</th>
+                                    <th>Cód. Pasajero</th>
+                                    <th>DNI / Estado</th>
+                                    <th>Fecha Registro</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Dinámico -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NUEVA PESTAÑA: GESTIÓN DE ROLES Y VACIADO -->
+            <div id="gestion-usuarios" class="tab-content">
+                <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
+                        <div>
+                            <h3 class="mb-2">Administración de Roles</h3>
+                            <p class="text-muted">Cambia los roles de los usuarios aprobados.</p>
+                        </div>
+                        <button class="btn btn-danger btn-auto" onclick="vaciarBaseDeDatos()">⚠️ Vaciar Base de Datos</button>
+                    </div>
+                    
+                    <div class="table-responsive mt-3">
+                        <table class="data-table" id="table-roles">
+                            <thead>
+                                <tr>
+                                    <th>Foto</th>
+                                    <th>Nombre</th>
+                                    <th>Email</th>
+                                    <th>Rol Actual</th>
+                                    <th>Cambiar Rol</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Dinámico -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="viajes" class="tab-content">
+                <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+                    <h3 class="mb-2">Nuevo viaje</h3>
+                    <div id="aviso-edicion" class="aviso aviso-info" style="display:none;">
+                        <strong id="aviso-edicion-titulo">Edición de recorrido</strong>
+                        <p>Está corrigiendo un viaje ya creado. Arrastre los puntos, quite los que sobren o haga clic para agregar otro. Al guardar se reemplaza la ruta anterior.</p>
+                        <button type="button" class="btn btn-outline btn-auto" id="btn-cancelar-edicion">Cancelar y crear uno nuevo</button>
+                    </div>
+                    <p class="text-muted mb-3">Defina fechas y el recorrido. Cada clic en el mapa agrega una parada de este viaje. Para corregir un viaje ya guardado, use Editar recorrido en Gestión de Viajes.</p>
+                    
+                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:20px;">
+                        <h4 style="margin-bottom:12px;">Datos del viaje</h4>
+                        <div class="grid grid-2 mb-3">
+                            <div>
+                                <label style="color:#475569; font-size:0.85rem; font-weight:600;">Nombre del Viaje</label>
+                                <input type="text" id="v-nombre" placeholder="Ej. Prácticas Volcán de Santa Ana" required style="border-radius:8px; border:1px solid #cbd5e1; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                            </div>
+                            <div>
+                                <label style="color:#475569; font-size:0.85rem; font-weight:600;">Fecha y Hora de Salida</label>
+                                <input type="datetime-local" id="v-fecha" required style="border-radius:8px; border:1px solid #cbd5e1; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                            </div>
+                        </div>
+                        
+                        <h4 style="margin:16px 0 12px;">Horario de reserva de asientos</h4>
+                        <div class="grid grid-2">
+                            <div style="background:#eff6ff; padding:15px; border-radius:8px; border:1px solid #bfdbfe;">
+                                <label style="color:#1e3a8a; font-size:0.85rem; font-weight:600; margin-bottom:5px;">Apertura de Selección</label>
+                                <input type="datetime-local" id="v-inicio-asientos" required style="border-radius:8px; border:1px solid #93c5fd; background:#fff; color:#1e3a8a;">
+                            </div>
+                            <div style="background:#fef2f2; padding:15px; border-radius:8px; border:1px solid #fecaca;">
+                                <label style="color:#991b1b; font-size:0.85rem; font-weight:600; margin-bottom:5px;">Cierre de Selección</label>
+                                <input type="datetime-local" id="v-cierre-asientos" required style="border-radius:8px; border:1px solid #fca5a5; background:#fff; color:#991b1b;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:1rem; margin-bottom:1rem;">
+                        <div class="seccion-titulo">
+                            <h3>Biblioteca de paradas</h3>
+                            <p>La lista vive en el programa, no en la base de datos. UGB San Miguel y Metrocentro ya están como nombres. Márquelos una vez en el mapa para guardar el punto en este navegador y volver a usarlos en otro viaje.</p>
+                        </div>
+                        <div id="lista-biblioteca" class="mb-2"><p class="text-muted">Cargando biblioteca.</p></div>
+                        <div class="grid grid-2">
+                            <div>
+                                <label for="bib-nombre">Nueva parada</label>
+                                <input type="text" id="bib-nombre" placeholder="Nombre del lugar">
+                            </div>
+                            <div>
+                                <label for="bib-buscar">Buscar en el mapa</label>
+                                <input type="text" id="bib-buscar" placeholder="Escriba una dirección o lugar">
+                            </div>
+                        </div>
+                        <div class="btn-group" style="margin-top:10px;">
+                            <button type="button" class="btn btn-auto" id="btn-bib-buscar">Buscar y guardar</button>
+                            <button type="button" class="btn btn-outline btn-auto" id="btn-bib-mapa">Guardar el último punto del mapa</button>
+                        </div>
+                    </div>
+                    
+                    <div id="routing-map" class="mb-3"></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                        <h4>Paradas de este recorrido</h4>
+                        <button type="button" class="btn btn-outline btn-auto" id="btn-quitar-ultima">Quitar última parada</button>
+                    </div>
+                    <div id="lista-paradas-editor" class="parada-editor"><p class="text-muted" style="padding:0.75rem;">Todavía no hay puntos. Haga clic en el mapa.</p></div>
+                    
+                    <button class="btn btn-success btn-auto" id="btn-save-viaje" style="display: block; margin: 0 auto; max-width: 320px;">Guardar Viaje y Ruta</button>
+                </div>
+                </div>
+
+
+            <!-- NUEVA PESTAÑA: GESTIÓN DE VIAJES (LISTA Y CROQUIS) -->
+            <div id="gestion-viajes" class="tab-content">
+                <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+                    <h3 class="mb-3">Lista de Viajes Programados</h3>
+                    <div id="lista-viajes">
+                        <!-- Dinámico -->
+                    </div>
+                </div>
+
+                <!-- CONTENEDOR CROQUIS VIP ADMIN -->
+                <div class="card mt-3" id="admin-croquis-container" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 class="mb-2">Visor de Croquis (Asignaciones)</h3>
+                        <button class="btn btn-outline btn-auto" onclick="document.getElementById('admin-croquis-container').style.display='none'">Cerrar</button>
+                    </div>
+                    <p class="text-muted mb-3">Puede apartar su asiento sin esperar el horario de los estudiantes. En el bus y en el microbús el frente queda arriba. En la moto, a la izquierda.</p>
+                    
+                    <div class="grid grid-2">
+                        <div>
+                            <label>Selecciona Vehículo</label>
+                            <select id="admin-vehiculo-select" onchange="renderAdminCroquis('admin')">
+                                <!-- Dinámico -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3" id="admin-croquis" style="width:100%; overflow-x:auto;">
+                        <div class="text-muted">Selecciona un vehículo para ver los asientos.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="asignacion" class="tab-content">
+                <div class="card" style="padding: 1.5rem;">
+                    <h3 class="mb-2">Asignación de pasajeros</h3>
+                    <p class="text-muted mb-3">Aquí están todos los estudiantes aprobados. Elija el viaje y, en cada persona, la unidad en la que viaja. El cupo aparece en la lista. Quien no se ha anotado también se puede asignar.</p>
+                    <div class="grid grid-2 mb-3">
+                        <div>
+                            <label for="asig-viaje">Viaje</label>
+                            <select id="asig-viaje" onchange="pintarAsignacion()"></select>
+                        </div>
+                        <div>
+                            <label for="asig-buscar">Buscar</label>
+                            <input type="text" id="asig-buscar" placeholder="Nombre o documento" oninput="pintarAsignacion(true)">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:1rem; display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#f8fafc; padding:10px 14px; border:1px solid var(--line); border-radius:4px;">
+                        <label for="asig-filtro-transporte" style="font-weight:700; color:var(--navy); font-size:0.95rem;">Filtrar inscritos por unidad:</label>
+                        <select id="asig-filtro-transporte" onchange="pintarAsignacion(true)" style="padding:6px 12px; border:1px solid var(--line); border-radius:4px; max-width:340px; font-size:0.95rem; font-weight:600;">
+                            <option value="todos">Todos los inscritos</option>
+                            <option value="bus_1">Bus 1</option>
+                            <option value="bus_2">Bus 2</option>
+                            <option value="microbus">Microbús</option>
+                            <option value="motos">Motocicletas</option>
+                            <option value="sin_unidad">Sin asignar a transporte</option>
+                        </select>
+                    </div>
+                    <div id="asig-resumen" class="mb-3"></div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Estudiante</th>
+                                    <th>Documento</th>
+                                    <th>Situación</th>
+                                    <th>Transporte</th>
+                                </tr>
+                            </thead>
+                            <tbody id="asig-tbody">
+                                <tr><td colspan="4">Seleccione un viaje.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NUEVA PESTAÑA: CONTROL DE ASISTENCIA SEPARADO POR TRANSPORTES -->
+            <div id="asistencia" class="tab-content">
+                <div class="card" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
+                        <div>
+                            <h3 class="mb-1">Control de asistencia</h3>
+                            <p class="text-muted" style="margin:0;">Vea quién va a bordo por transporte o agrupado por la parada en la que indicó que se sube. Desde cualquiera de las dos vistas puede marcar la asistencia.</p>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-outline btn-auto" onclick="cargarControlAsistencia(true)">Actualizar asistencia</button>
+                            <button type="button" class="btn btn-primary btn-auto" onclick="descargarPdfAsistencia()">Descargar PDF para imprimir</button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-2 mt-3 mb-3">
+                        <div>
+                            <label for="asist-viaje" style="font-weight:700; color:var(--navy);">Seleccionar Viaje</label>
+                            <select id="asist-viaje" onchange="cargarControlAsistencia()"></select>
+                        </div>
+                        <div>
+                            <label for="asist-buscar" style="font-weight:700; color:var(--navy);">Buscar Pasajero</label>
+                            <input type="text" id="asist-buscar" placeholder="Nombre o documento..." oninput="filtrarListaAsistencia()">
+                        </div>
+                    </div>
+
+                    <!-- Resumen General -->
+                    <div id="asist-resumen-general" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:1rem;">
+                        <!-- Se llena dinámicamente -->
+                    </div>
+
+                    <div class="btn-group mt-2 mb-2" style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn btn-primary btn-auto" id="asist-modo-unidad" onclick="cambiarVistaAsistencia('unidad')">Por transporte</button>
+                        <button type="button" class="btn btn-outline btn-auto" id="asist-modo-parada" onclick="cambiarVistaAsistencia('parada')">Por parada de subida</button>
+                    </div>
+
+                    <!-- Filtro rápido por transporte -->
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;" id="asist-tabs-unidades">
+                        <!-- Botones dinámicos: [ Todos | Bus 1 | Bus 2 | Microbús | Motocicletas ] -->
+                    </div>
+                </div>
+
+                <!-- Contenedor con las unidades separadas -->
+                <div id="asist-unidades-container">
+                    <!-- Renderizado dinámico de Bus 1, Bus 2, Microbús, Motocicletas con sus pasajeros y estados verde/rojo -->
+                </div>
+            </div>
+
+            <div id="operacion" class="tab-content">
+                <div class="card" style="padding:1.5rem; margin-bottom:1rem;">
+                    <h3 class="mb-2">Operación del viaje</h3>
+                    <p class="text-muted mb-3">Desde aquí el superadministrador opera la unidad: transmite el GPS, inicia la ruta, ve el manifiesto, aprueba paradas y reserva su asiento y su parada de subida.</p>
+                    <div class="grid grid-2">
+                        <div>
+                            <label for="op-viaje">Viaje</label>
+                            <select id="op-viaje" onchange="cargarOperacion()"></select>
+                        </div>
+                        <div>
+                            <label for="op-transporte">Unidad</label>
+                            <select id="op-transporte" onchange="cargarOperacionUnidad()"></select>
+                        </div>
+                    </div>
+                    <p class="mt-2"><span class="badge" id="op-estado" style="background:#e0e7ff; color:#4338ca;">Sin viaje</span></p>
+                    <div style="background:#f8fafc; padding:1rem 1.25rem; border-radius:var(--radius-md); border:1px solid var(--card-border); margin:1rem 0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                            <div>
+                                <h4 style="margin:0 0 4px; font-size:0.95rem;"><span class="gps-status-indicator" id="op-gps-dot"></span>Transmisión GPS en vivo</h4>
+                                <p id="op-gps-text" class="text-muted" style="margin:0; font-size:0.82rem;">Inactivo</p>
+                            </div>
+                            <label class="toggle-switch" title="Activar o detener la transmisión GPS de la unidad elegida">
+                                <input type="checkbox" id="op-gps-toggle" onchange="alternarGpsOperacion(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="btn-group mt-2" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                        <button type="button" class="btn btn-success btn-auto" id="op-btn-iniciar" onclick="operacionIniciar()">Iniciar ruta</button>
+                        <button type="button" class="btn btn-danger btn-auto" id="op-btn-finalizar" style="display:none;" onclick="operacionFinalizar()">Llegamos al destino</button>
+                        <button type="button" class="btn btn-outline btn-auto" id="op-btn-reiniciar" style="border-color:#6366f1; color:#4338ca; font-weight:600;" onclick="operacionReiniciarCiclo()">🔄 Reiniciar ciclo del viaje</button>
+                    </div>
+                </div>
+                <div class="card" style="padding:1.5rem; margin-bottom:1rem;">
+                    <h3 class="mb-2">Recorrido</h3>
+                    <div id="op-map"></div>
+                </div>
+                <div class="card" style="padding:1.5rem; margin-bottom:1rem;">
+                    <h3 class="mb-2">Manifiesto de la unidad</h3>
+                    <p id="op-abordo" class="text-muted mb-2">A bordo: 0</p>
+                    <div class="table-responsive">
+                        <table>
+                            <thead><tr><th>Pasajero</th><th>Asiento</th><th>Parada</th><th>Estado</th><th>Acción</th></tr></thead>
+                            <tbody id="op-manifiesto"><tr><td colspan="5">Elija una unidad.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card" style="padding:1.5rem; margin-bottom:1rem;">
+                    <h3 class="mb-2">Solicitudes de parada</h3>
+                    <div class="table-responsive">
+                        <table>
+                            <thead><tr><th>Estudiante</th><th>Tipo</th><th>Lugar</th><th>Estado</th><th>Acción</th></tr></thead>
+                            <tbody id="op-paradas"><tr><td colspan="5">Elija un viaje.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card" style="padding:1.5rem;">
+                    <h3 class="mb-2">Asiento y parada de subida</h3>
+                    <p class="text-muted mb-2">Puede apartar su asiento sin esperar el horario de los estudiantes. Con el asiento reservado, indique en qué punto de la ruta se sube. Ese punto es el que sale en el PDF.</p>
+                    <div id="op-croquis" style="width:100%; overflow-x:auto;"><p class="text-muted">Elija una unidad.</p></div>
+                    <div id="op-mi-parada" style="margin-top:1.25rem; padding-top:1rem; border-top:1px solid var(--card-border);">
+                        <label for="op-parada-select">Parada de subida</label>
+                        <select id="op-parada-select">
+                            <option value="">Reserve primero su asiento en esta unidad</option>
+                        </select>
+                        <p id="op-parada-otro-ayuda" class="ayuda" style="display:none;">Marque un punto sobre la línea del recorrido. Si queda a más de 50 metros, no se envía. La solicitud queda pendiente hasta que se acepte.</p>
+                        <p id="op-parada-estado" class="ayuda"></p>
+                        <button type="button" class="btn" id="op-btn-parada" onclick="guardarParadaSuper()">Confirmar parada</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="paradas" class="tab-content">
+                <div class="card" style="padding:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+                        <h3 class="mb-2">Solicitudes de parada</h3>
+                        <span class="badge" id="super-paradas-count" style="background:var(--warning); color:#fff;">Pendientes: 0</span>
+                    </div>
+                    <p class="text-muted mb-3">Llegan aquí las mismas solicitudes que ve el chofer. El mapa muestra el recorrido y el punto exacto que marcó el estudiante. Use «Ver punto» para centrarlo.</p>
+                    <div id="paradas-map" class="mb-3"></div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Estudiante</th>
+                                    <th>Viaje</th>
+                                    <th>Tipo</th>
+                                    <th>Lugar</th>
+                                    <th>Estado</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="super-paradas">
+                                <tr><td colspan="6">Cargando solicitudes.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="evidencias" class="tab-content">
+                <div class="card" style="padding: 1.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:0.75rem;">
+                        <h3 style="margin:0;">Evidencias de limpieza</h3>
+                        <button type="button" class="btn btn-outline btn-auto" style="border-color:#ef4444; color:#dc2626; font-size:0.85rem;" onclick="limpiarTodasEvidencias()">🗑️ Eliminar todas las evidencias</button>
+                    </div>
+                    <p class="text-muted mb-3">Cada estudiante envía una fotografía ayudando a recoger basura. Revise que se le vea limpiando. Solo al aprobarla queda validada su participación en U-VIBE.</p>
+                    <div id="lista-evidencias"><p class="text-muted">Cargando evidencias.</p></div>
+                </div>
+            </div>
+
+            <!-- MODAL DE TRANSPORTES -->
+            <div id="modal-transportes" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; overflow-y:auto;">
+                <div class="card" style="margin: 5% auto; width: 90%; max-width: 800px; padding: 2rem; position:relative;">
+                    <button class="btn" style="position:absolute; top:15px; right:20px; background:transparent; border:none; font-size:2rem; color:#64748b; padding:0; cursor:pointer;" onclick="cerrarModalTransportes()">&times;</button>
+                    <h2 class="mb-2" id="modal-t-titulo" style="word-break: break-word; overflow-wrap: break-word; padding-right:30px;">Transportes del Viaje</h2>
+                    <p class="text-muted mb-3">Añade vehículos, sube fotos y asigna a los alumnos anotados.</p>
+                    
+                    <!-- CREAR TRANSPORTE -->
+                    <div style="background: #f8fafc; padding:1.5rem; border-radius:var(--radius-md); border: 1px solid var(--card-border); margin-bottom:20px;">
+                        <h4 class="mb-2">Añadir Nuevo Transporte</h4>
+                        <form id="form-transporte" class="grid grid-2">
+                            <input type="hidden" id="t-viaje-id">
+                            <input type="hidden" id="t-imagen">
+                            <div>
+                                <label>Topología del Vehículo</label>
+                                <select id="t-topologia-select" required style="width:100%; padding:8px;">
+                                    <option value="bus_50">Autobús (50 Plazas)</option>
+                                    <option value="microbus_16">Microbús (18 plazas)</option>
+                                    <option value="moto">Motocicleta</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Foto del Vehículo (Opcional)</label>
+                                <input type="file" id="t-file-img" accept="image/*" style="width:100%; padding:8px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: #fff;">
+                            </div>
+                            <div>
+                                <label id="lbl-t-admin">Responsable de la unidad <span id="badge-admin-req" style="color:var(--text-muted); font-size:0.8rem; font-weight:normal;">(Opcional)</span></label>
+                                <select id="t-admin-select" style="width:100%; padding:8px;">
+                                    <option value="">Sin chofer asignado (Opcional)...</option>
+                                </select>
+                            </div>
+                            <div style="grid-column: 1 / -1;">
+                                <button type="submit" class="btn btn-primary mt-2">Agregar Vehículo</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <hr class="mb-3">
+
+                    <!-- LISTA DE TRANSPORTES Y ASIGNACIÓN -->
+                    <h3 class="mb-2">Vehículos del viaje</h3>
+                    <div id="lista-transportes-modal">
+                        <!-- Dinámico -->
+                    </div>
+
+                    <div class="aviso aviso-info" style="margin-top:1rem;">
+                        <strong>Pasajeros</strong>
+                        <p>La lista de personas y la unidad de cada una está en Asignación de pasajeros, en el menú lateral.</p>
+                        <button type="button" class="btn btn-auto" style="margin-top:0.6rem;" onclick="irAAsignacion(document.getElementById('t-viaje-id').value)">Abrir asignación de este viaje</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="supabase.js"></script>
+    <script src="comun.js"></script>
+    <script src="paradas-biblioteca.js"></script>
+    <script src="superadmin.js"></script>
+</body>
+</html>

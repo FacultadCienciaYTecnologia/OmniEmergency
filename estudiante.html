@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OmniTravel - Panel Estudiante</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        const s_est = JSON.parse(localStorage.getItem('omni_user'));
+        if (!s_est || s_est.rol !== 'estudiante') {
+            window.location.replace('index.html');
+        }
+    </script>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        .navbar { position: static; }
+        .trip-header {
+            background: var(--navy);
+            color: #fff;
+            padding: 1.25rem 1.4rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            border-bottom: 3px solid var(--gold);
+        }
+        .trip-header h2, .trip-header p, .trip-header strong { color: #fff; }
+        .bus-container { width: 100%; margin: 0 auto; overflow-x: auto; }
+    </style>
+</head>
+
+<body>
+
+    <button type="button" class="menu-toggle" id="menu-toggle">Menú</button>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="dashboard-container">
+    <aside class="sidebar" id="sidebar">
+        <a href="#" class="nav-brand">OmniTravel<small>Panel del estudiante</small></a>
+        <div class="sidebar-user">
+            <img id="nav-profile-pic" src="" alt="Perfil">
+            <span class="user-badge" id="user-name-display">Estudiante</span>
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-item" data-ir="panel-lobby">Viajes</div>
+            <div class="menu-item" data-ir="panel-viaje-activo">Mi viaje</div>
+            <div class="menu-item" data-ir="panel-mapa">Recorrido</div>
+            <div class="menu-item" data-ir="panel-evidencia">Evidencia</div>
+            <div class="menu-item menu-salir" onclick="logout()">Cerrar sesión</div>
+        </div>
+    </aside>
+    <div class="main-content">
+
+    <div class="container" style="padding-top: 0;">
+
+        <!-- LOBBY DE VIAJES (Cuando no está inscrito) -->
+        <div id="panel-lobby" style="display:none;">
+            <div class="guia">
+                <strong>Inscripción</strong>
+                <p>Elija un viaje con inscripción abierta. Después, el superadministrador asigna el transporte. Hasta entonces no puede reservar asiento ni parada.</p>
+            </div>
+            <div id="lista-viajes-lobby" class="grid grid-2">
+                <!-- Se llenará con JS -->
+            </div>
+        </div>
+
+        <!-- PANEL DE VIAJE ACTIVO -->
+        <div id="panel-viaje-activo" style="display:none;">
+            <div id="guia-estudiante" class="guia"><strong>Estado del viaje</strong><p>Cargando su situación.</p></div>
+            <div class="trip-header">
+                <div>
+                    <h2 id="v-titulo" style="word-break: break-word; overflow-wrap: break-word;">Cargando...</h2>
+                    <p id="v-fecha">Buscando información...</p>
+                    <div style="display:flex; align-items:center; gap:15px; margin-top:10px;">
+                        <img id="v-transporte-img" src="" style="width:100px; height:60px; object-fit:cover; border-radius:5px; border:2px solid rgba(255,255,255,0.3); display:none;">
+                        <div>
+                            <p><strong id="v-transporte"></strong></p>
+                            <p id="v-countdown" style="font-weight:700; margin-top:4px; color:#f3e6c8;"></p>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span class="badge" id="badge-estado" style="background: rgba(255,255,255,0.2); color:white; font-size:1rem; padding: 8px 15px;">Inscrito</span>
+                    <div id="panel-asistencia" style="margin-top: 15px; display:none;">
+                        <span class="badge" id="asistencia-badge" style="font-size:0.85rem; padding:6px 12px; font-weight:700; margin-bottom:8px; display:inline-block;">🔴 Aún no estás dentro</span>
+                        <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+                            <button id="btn-asistencia" class="btn btn-success btn-auto" onclick="marcarAsistencia(true)">
+                                🟢 ¡Ya estoy a bordo!
+                            </button>
+                            <button id="btn-cancelar-asistencia" class="btn btn-outline btn-auto" style="border-color:var(--error); color:var(--error); display:none;" onclick="marcarAsistencia(false)">
+                                🔴 Aún no estoy dentro
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LISTA GENERAL DEL VIAJE -->
+            <div class="card mb-3">
+                <div class="seccion-titulo">
+                    <h3>Participantes del viaje</h3>
+                    <p>Nombres de las personas anotadas.</p>
+                </div>
+                <div id="lista-general" style="display: flex; gap:10px; flex-wrap: wrap;">
+                    <!-- Burbujas de fotos -->
+                </div>
+            </div>
+
+        <div id="panel-croquis" style="display:none;">
+            <div class="card mb-3">
+                <div class="seccion-titulo">
+                    <h3>Su unidad</h3>
+                    <p>Nombres de las personas asignadas al mismo transporte.</p>
+                </div>
+                <div id="lista-miembros" style="display: flex; gap:10px; flex-wrap: wrap;"></div>
+            </div>
+
+            <!-- CARD RESERVA DE ASIENTO (CROQUIS) - SOLO PARA PASAJEROS CON ASIENTO REGULAR -->
+            <div class="card mb-3" id="card-croquis-asientos">
+                <div class="seccion-titulo">
+                    <h3>1. Reserva de asiento</h3>
+                    <p>Elija un asiento libre dentro del horario. Fuera de ese horario el croquis no acepta cambios. En el bus y en el microbús el frente queda arriba. En la moto, a la izquierda.</p>
+                </div>
+                <div class="aviso aviso-info mb-2" style="border-left: 4px solid var(--gold); background: #fdfbf7;">
+                    <strong>🤝 Actividad en Parejas para la Jornada de Limpieza:</strong>
+                    <p style="margin: 4px 0 0 0; color: var(--text);">
+                        En el bus, la pareja de trabajo es quien va a su lado: 1 con 2, 4 con 5, 6 con 7, y así hasta 44 con 45. El asiento 3 va con el 48. Los puestos 46, 47, 49 y 50 son de las autoridades; esa pareja se indica el día de la actividad. En el microbús, la pareja también es quien va al lado. Los asientos 8 y 12 van en el pasillo y no tienen respaldar.
+                    </p>
+                </div>
+                    <div id="seat-timer-container" class="aviso" style="display:none;"></div>
+                    <div class="bus-container" id="croquis" style="display:none;"></div>
+                    <div class="legend" style="display:none;">
+                    <div class="legend-item"><div class="legend-box" style="background:#fff;"></div> Libre</div>
+                    <div class="legend-item"><div class="legend-box" style="background:var(--navy);"></div> Ocupado</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#6e3030;"></div> Personal</div>
+                    <div class="legend-item"><div class="legend-box" style="background:var(--success);"></div> Su asiento</div>
+                    <div class="legend-item"><div class="legend-box" style="background:#fbf6ea;border-style:dashed;border-color:#9a6b12;"></div> Sin respaldar</div>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="panel-parada">
+                <div class="seccion-titulo">
+                    <h3>2. Punto de abordaje</h3>
+                    <p>Disponible cuando el asiento ya está reservado. Las opciones son las paradas guardadas en este viaje. Si se aprueba un punto extra, aparece aquí para todos, sin importar el transporte. «Otro punto sobre la ruta» solo envía una solicitud.</p>
+                </div>
+                <form id="form-parada">
+                    <label for="parada-select">Parada</label>
+                    <select id="parada-select" required>
+                        <option value="">Seleccione una parada</option>
+                    </select>
+                    <p id="parada-otro-ayuda" class="ayuda" style="display:none;">Marque un punto sobre la línea del recorrido. Si queda a más de 50 metros, no se envía. La solicitud queda pendiente hasta que la administración la acepte.</p>
+                    <p id="parada-estado" class="ayuda"></p>
+                    <button type="button" class="btn" id="btn-save-parada" onclick="guardarParada()">Confirmar parada</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="panel-evidencia" class="card mt-3">
+            <div class="seccion-titulo">
+                <h3>Evidencia de limpieza</h3>
+                <p>Suba o tome una fotografía en la que se le vea ayudando a recoger basura. El superadministrador la revisa. Solo si la imagen es válida queda acreditada su participación en U-VIBE.</p>
+            </div>
+            <div id="evidencia-estado" class="aviso-evidencia">Cargando el estado de su evidencia.</div>
+            <img id="evidencia-preview" class="evidencia-preview" alt="Evidencia enviada" style="display:none;">
+            <div class="btn-group" id="evidencia-acciones">
+                <button type="button" class="btn btn-auto" id="btn-evidencia-camara">Tomar foto</button>
+                <button type="button" class="btn btn-outline btn-auto" id="btn-evidencia-archivo">Subir imagen</button>
+            </div>
+            <input type="file" id="evidencia-camara" accept="image/*" capture="environment" style="display:none;">
+            <input type="file" id="evidencia-archivo" accept="image/*" style="display:none;">
+        </div>
+
+        <div id="panel-mapa" class="card mt-3">
+            <div class="seccion-titulo">
+                <h3>Recorrido</h3>
+                <p>Ruta programada, paradas oficiales y paradas solicitadas aprobadas.</p>
+            </div>
+            <div id="student-map"></div>
+            <button type="button" class="btn btn-danger mapa-accion" id="btn-parada-ruta" onclick="iniciarSeleccionParada()">Solicitar parada en el mapa</button>
+            <p class="ayuda" id="ayuda-parada-mapa">Marque un punto cerca de la línea del recorrido. No tiene que ser su ubicación actual. Si queda a más de 50 metros de la ruta, no se envía. No sustituye la parada de subida.</p>
+        </div>
+
+        </div> <!-- Fin panel-viaje-activo -->
+
+    </div>
+    </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase.js"></script>
+    <script src="comun.js"></script>
+    <script src="estudiante.js"></script>
+</body>
+
+</html>

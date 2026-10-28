@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OmniTravel - Admin Transporte</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        const s_admin = JSON.parse(localStorage.getItem('omni_user') || 'null');
+        if (s_admin && s_admin.rol === 'admin') {
+            s_admin.rol = 'superadmin';
+            localStorage.setItem('omni_user', JSON.stringify(s_admin));
+        }
+        window.location.replace(s_admin && s_admin.rol === 'superadmin' ? 'superadmin.html' : 'index.html');
+    </script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- NoSleep.js para evitar que la pantalla se apague y el GPS deje de transmitir en segundo plano -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js"></script>
+    
+    <style>
+        .navbar { position: static; margin-bottom: 2rem; }
+        #admin-map { width: 100%; height: 350px; border-radius: var(--radius-md); border: 1px solid var(--card-border); z-index: 1; }
+        
+        .manifest-table { width: 100%; border-collapse: collapse; background: #fff; }
+        .manifest-table th, .manifest-table td { padding: 0.8rem; text-align: left; border-bottom: 1px solid var(--card-border); }
+        .manifest-table th { background: #f8fafc; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc; transition: .4s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px;
+            background-color: white; transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--success); }
+        input:checked + .slider:before { transform: translateX(26px); }
+
+        .gps-status-indicator {
+            display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+            background: var(--text-muted); margin-right: 8px; transition: 0.3s;
+        }
+        .gps-status-indicator.active { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse-gps 1.5s infinite; }
+        @keyframes pulse-gps {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <button type="button" class="menu-toggle" id="menu-toggle">Menú</button>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="dashboard-container">
+    <aside class="sidebar" id="sidebar">
+        <a href="#" class="nav-brand">OmniTravel<small>Unidad de transporte</small></a>
+        <div class="sidebar-user">
+            <img id="nav-profile-pic" src="" alt="Perfil">
+            <span class="user-badge" id="admin-name">Admin: Chofer</span>
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-item" data-ir="panel-control">Control del viaje</div>
+            <div class="menu-item" data-ir="panel-manifiesto">Manifiesto</div>
+            <div class="menu-item" data-ir="panel-paradas">Solicitudes</div>
+            <div class="menu-item" data-ir="panel-croquis-admin">Croquis</div>
+            <div class="menu-item menu-salir" onclick="logout()">Cerrar sesión</div>
+        </div>
+    </aside>
+    <div class="main-content">
+
+    <div class="container" style="padding-top: 0;">
+        
+        <div class="grid grid-2 mb-3" id="panel-control">
+            <!-- PANEL DE CONTROL DEL VIAJE -->
+            <div class="card" style="display:flex; flex-direction:column; justify-content:center;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 class="mb-2">Control del viaje</h3>
+                    <span class="badge" id="estado-ruta" style="background:#e0e7ff; color:#4338ca;">Preparación</span>
+                </div>
+                <p class="text-muted mb-3">Inicie la ruta para indicar la salida y avance del viaje de la unidad.</p>
+                
+                <div style="background: #f8fafc; padding: 1rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--card-border); margin-bottom: 1rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <h4 style="margin:0 0 4px; display:flex; align-items:center; font-size:0.95rem;">
+                                <span class="gps-status-indicator" id="gps-dot"></span>
+                                Transmisión GPS en Vivo
+                            </h4>
+                            <p id="gps-text" class="text-muted" style="margin:0; font-size:0.82rem;">Inactivo</p>
+                        </div>
+                        <label class="toggle-switch" title="Activar/desactivar transmisión GPS">
+                            <input type="checkbox" id="gps-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="margin-top:8px; padding-top:8px; border-top:1px dashed #e2e8f0;">
+                        <strong style="color:var(--navy); font-size:0.9rem;">Estado de la Unidad:</strong>
+                        <p id="unidad-estado-info" class="text-muted" style="margin:2px 0 0; font-size:0.85rem;">Ruta programada lista para iniciar.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <button class="btn btn-success btn-auto" id="btn-iniciar" onclick="iniciarRuta()">Iniciar Ruta</button>
+                    <button class="btn btn-auto" style="background:var(--error); border-color:var(--error); color:white; display:none;" id="btn-finalizar" onclick="finalizarRuta()">Finalizar Ruta (Vuelta)</button>
+                    <button class="btn btn-outline btn-auto" style="border-color:#6366f1; color:#4338ca; font-weight:600; display:none;" id="btn-reiniciar-admin" onclick="reiniciarCicloAdmin()">🔄 Reiniciar Ciclo</button>
+                </div>
+            </div>
+
+            <!-- MAPA DEL ADMIN -->
+            <div class="card">
+                <h3 class="mb-2">Recorrido y Paradas</h3>
+                <p id="route-summary" class="text-muted" style="margin-bottom: 10px; font-weight: bold; font-size: 0.9rem;"></p>
+                <div id="admin-map"></div>
+            </div>
+        </div>
+
+        <div class="guia">
+            <strong>Asignación y Asistencia</strong>
+            <p>Consulte los pasajeros asignados a su unidad. Los pasajeros en verde ya abordaron y en rojo aún no están dentro.</p>
+        </div>
+
+        <!-- LISTA DE ABORDAJE (MANIFIESTO) -->
+        <div class="card" id="panel-manifiesto">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; flex-wrap:wrap; gap:10px;">
+                <div>
+                    <h3 style="margin-bottom:2px;">Manifiesto de Pasajeros</h3>
+                    <p class="text-muted" style="margin:0; font-size:0.85rem;">En verde: a bordo. En rojo: aún no dentro.</p>
+                </div>
+                <span class="badge" id="count-abordo" style="background:var(--success); color:white; font-size:0.85rem; padding:6px 12px;">A bordo: 0</span>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="manifest-table">
+                    <thead>
+                        <tr>
+                            <th>Pasajero</th>
+                            <th>Código</th>
+                            <th>Parada</th>
+                            <th>Asiento</th>
+                            <th>Estado</th>
+                            <th>Acción (Staff)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="manifest-tbody">
+                        <tr><td colspan="6" style="text-align:center;">Cargando pasajeros...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- PARADAS INTERMITENTES -->
+        <div class="card mt-3" id="panel-paradas">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+                <h3>Solicitudes de parada</h3>
+                <span class="badge" id="count-paradas" style="background:var(--warning); color:white;">Pendientes: 0</span>
+            </div>
+            <p class="text-muted mb-2">Subida u otro punto durante el viaje. El mapa muestra el recorrido y el punto exacto de cada solicitud.</p>
+            <div id="admin-paradas-map" class="mb-2"></div>
+            <div class="table-responsive">
+                <table class="manifest-table">
+                    <thead>
+                        <tr>
+                            <th>Estudiante</th>
+                            <th>Tipo</th>
+                            <th>Lugar</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="paradas-tbody">
+                        <tr><td colspan="5">Sin solicitudes.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- CONTENEDOR CROQUIS ADMIN -->
+        <div class="card mt-3" id="panel-croquis-admin">
+            <h3 class="mb-2">Croquis de la unidad</h3>
+            <p class="text-muted mb-3">El puesto de chofer no es un asiento. Puede reservar su lugar sin esperar el horario de los estudiantes. En el bus y en el microbús el frente queda arriba. En la moto, a la izquierda.</p>
+            
+            <div class="mt-3" id="admin-croquis" style="width:100%; overflow-x:auto;">
+                <div class="text-muted">Cargando croquis...</div>
+            </div>
+        </div>
+    </div>
+    </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase.js"></script>
+    <script src="comun.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>
